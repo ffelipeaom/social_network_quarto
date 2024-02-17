@@ -1,0 +1,268 @@
+---
+title: "Análise de Dados de Redes Sociais"
+author: "Felipe Augusto de Oliveira Menezes"
+format: html
+    #theme: minty # https://quarto.org/docs/output-formats/html-themes.html
+editor: visual
+# bibliography: 
+#   - references.bib
+#   - packages.bib
+toc: true
+toc-depth: 4
+toc-location: left
+number-sections: true
+number-depth: 4
+theme:
+  light: [flatly, ajustes.css]
+  dark: [darkly, ajustes.css]
+lang: pt
+---
+
+```{r}
+#| label: carregar-pacotes
+#| message: false
+#| echo: false
+#| include: false
+library(tidyverse)
+library(here)
+```
+
+```{r}
+#| label: settings
+#| include: false
+#| echo: false
+#| message: false
+options(scipen = 999)
+```
+
+```{r}
+#| label: carregar-dados
+#| message: false
+#| echo: false
+df_nov <- readr::read_csv(here("dados","posts out-nov 2023.csv"))
+df_YTD <- readr::read_csv(here("dados","posts YTD 2023.csv"))
+```
+
+```{r}
+#| label: function-plotPerformance
+#| include: false
+#| message: false
+#| warning: false
+#| echo: false
+f_plotPerformance <- function(df, goalAER, profile_tag = "", start_date, end_date, scale_factor) {
+  set.seed(1234)
+  
+  start_date <- as.Date(start_date)
+  end_date <- as.Date(end_date)
+  
+  df_bench_profile <- df_YTD |> 
+    filter(lubridate::quarter(Date) == (lubridate::quarter(df_YTD$Date[nrow(df_YTD)])-1),
+           Profile == profile_tag)
+  
+  #df_bench_profile <- df_prev_quarter|> filter(Profile == profile_tag)
+  mean_imp_bench <- mean(df_bench_profile$Impressions, na.rm = TRUE)
+  mean_eng_bench <- mean(df_bench_profile$Engagements, na.rm = TRUE)
+  
+  df <- df[,colSums(is.na(df))<nrow(df)]
+  df <- df[df$Impressions != 0,]
+  df$Date <- lubridate::parse_date_time(df$Date, "%m/%d/%Y %I:%M %p")
+  
+  df <- df |>
+    drop_na() |> 
+    filter(Date >= start_date & Date <= end_date) |> 
+    arrange(Date)
+  
+  # SET MEAN-REFERENCES AXES
+  mean_imp <- mean(df$Impressions, na.rm = TRUE)
+  mean_eng <- mean(df$Engagements, na.rm = TRUE)
+  
+  # PLOT
+  p_df <- df |> 
+    data.frame() |> 
+    ggplot(aes(x = Impressions, y = Engagements)) +
+    geom_point() +
+  # AER BENCHMARK
+    geom_abline(intercept = 0,
+                slope = goalAER,
+                color = "#00C8AF",
+                linetype = "solid") +
+    annotate("text",
+             x = (max(df$Impressions, na.rm = TRUE)),
+             y = ((max(df$Impressions, na.rm = TRUE)*goalAER) + (max(df$Engagements, na.rm = TRUE)*0.035)),
+             label = paste(goalAER*100, "%", sep = ""),
+             size = 2.1*scale_factor, color = "#00C8AF") +
+    geom_area(aes(x = Impressions, y = Impressions*goalAER),
+              position = "identity",
+              fill = "#41145F",
+              alpha = .1) +
+    geom_point(color = "#9146FF", size = 1.90) +
+    
+  # MEAN AXES: impressions and engagement
+    # long period x axis
+    geom_vline(aes(xintercept = mean_imp_bench), linetype = "dashed", color = "#FF6905") +
+    annotate("text",
+             x = max(df$Impressions, na.rm = TRUE), #max(mean_imp, mean_imp_bench, na.rm = TRUE),
+             y = mean_eng_bench,
+             label = paste("Previous", "Quarter", sep = "\n"),
+             size = 2*scale_factor, color = "#91919F", alpha = 0.95) +
+    # long period y axis
+    geom_hline(aes(yintercept = mean_eng_bench), linetype = "dashed", color = "#FF6905") +
+    # short period x axis
+    geom_vline(aes(xintercept = mean_imp), linetype = "dashed", color = "#FDB210") +
+      # short period y axis
+    geom_hline(aes(yintercept = mean_eng), linetype = "dashed", color = "#FDB210") +
+    annotate("text",
+             x = 0, #max(mean_imp, mean_imp_bench, na.rm = TRUE)
+             y = mean_eng,
+             label = paste("Last", "28 days", sep = "\n"),
+             size = 2*scale_factor, color = "#91919F", alpha = 0.95) +
+    
+    ggrepel::geom_text_repel(size = 2*scale_factor,
+                    #max.overlaps = (nrow(df)*0.5) + 3.5,
+                    min.segment.length = 0.65,
+                    aes(x = Impressions, y = Engagements,
+                        label = ifelse((Engagements/Impressions >= goalAER*0.9 |
+                                          Engagements == max(df$Engagements, na.rm = TRUE) |
+                                          Engagements == min(df$Engagements, na.rm = TRUE) |
+                                          Impressions == max(df$Impressions, na.rm = TRUE) |
+                                          Impressions == min(df$Impressions, na.rm = TRUE) |
+                                          df$Date > end_date-21),
+                                       paste(
+                                         as.character(format(Date, "%d/%m")),
+                                         as.character(format(Date, "%Hh%M")),
+                                         sep = "\n"),
+                                       "")
+                        )
+                    ) +
+    expand_limits(x = max(df$Impressions, na.rm = TRUE),
+                  y = max(df$Engagements, na.rm = TRUE)) +
+    theme_classic() +
+    theme(
+      panel.background = element_rect(fill = "#f0f0ffff"),
+      panel.grid = element_line(color = "white"),
+      axis.line.x.bottom = element_line(colour = NA),
+      axis.line.y.left = element_line(colour = NA),
+      #aspect.ratio = 9/16,
+      plot.background = element_rect(fill = "transparent", colour = NA)
+      )
+  
+  return(p_df)
+}
+```
+
+```{r}
+#| label: function-combinarTexto
+#| include: false
+#| message: false
+#| warning: false
+#| echo: false
+f_combinarTexto <- function(vetor) {
+  knitr::combine_words(vetor,
+                       and = " e ",
+                       oxford_comma = FALSE)
+}
+```
+
+# Introdução
+
+Este documento analisa a evolução de dados de redes sociais de um cliente. O cliente possui **`r n_distinct(df_YTD$Profile)`** perfis em **`r n_distinct(df_YTD$Network)`** redes sociais: **`r f_combinarTexto(unique(df_YTD$Network))`**. O período analisado é  referente à **`r format(lubridate::parse_date_time(min(df_YTD$Date), "%m/%d/%Y %I:%M %p"), "%d/%m/%Y")`** à **`r format(lubridate::parse_date_time(max(df_YTD$Date), "%m/%d/%Y %I:%M %p"), "%d/%m/%Y")`**.
+
+[![](pics/ig.png){fig-align="center" width="70"}](https://instagram.com)
+[![](pics/tiktok.png){fig-align="center" width="55"}](https://tiktok.com)
+[![](pics/twitter.png){fig-align="center" width="65"}](https://twitter.com)
+
+
+# Performance Geral
+
+Abaixo observamos, nas três redes, a performance de Impressões entre os perfis. No Twitter, o cliente possui 2 perfis diferentes, os quais ambos também performam melhor do que os perfis nas outras redes.
+```{r}
+#| label: plot-bar-Impressions
+#| message: false
+#| echo: false
+#| warning: false
+#| out-width: "90%"
+#| fig-cap: "Gráfico de Impressões"
+#| fig-align: "center"
+df_nov |>
+  ggplot(aes(x = Impressions, y = Network, fill = Profile)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  theme_minimal()
+```
+
+Abaixo, notamos o mesmo padrão, mas para Engajamento, com número significantemente menores que Impressões.
+
+```{r}
+#| label: plot-bar-Engagement
+#| message: false
+#| echo: false
+#| warning: false
+#| out-width: "90%"
+#| tbl-cap: "Gráfico de Engajamento"
+#| fig-align: "center"
+df_nov |>
+  ggplot(aes(x = Engagements, y = Network, fill = Profile)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  theme_minimal()
+```
+
+
+
+# Evolução
+
+Nos gráficos abaixo, podemos ver a evolução dos posts conforme o tempo, comparativamente num mesmo perfil . No caso, Perfil A, de 01/11 à 07/11. A comparação é realizada entre conteúdos, mas também em relação à média da performance de Impressões e Engajamento dos últimos 28 dias e trimestre anterior.
+O conteúdo do dia 06/11 é o que melhor performa, bem acima da meta de 5% de Taxa de Engajamento.
+```{r}
+#| label: plot-perfPerfilA-week1
+#| message: false
+#| echo: false
+#| warning: false
+#| out-width: "90%"
+#| tbl-cap: "Gráfico de Performance do Perfil A, Semana 1"
+#| fig-align: "center"
+f_plotPerformance(df_nov, 0.05, profile_tag = "Perfil A", "2023-11-01", "2023-11-07", scale_factor = 1.35)
+```
+
+Ainda em relação ao Perfil A, mas incluindo a semana seguinte. Podemos ver que o conteúdo do dia 06/11 (o mesmo do gráfico anterior) continua com ótima performance de Engajamento, mas que um novo conteúdo já o ultrapassa em Impressões, do dia 09/11. Entretanto, com seu baixo Engajamento, o conteúdo do dia 06/11 ainda é o destaque.
+```{r}
+#| label: plot-perfPerfilA-week2
+#| message: false
+#| echo: false
+#| warning: false
+#| out-width: "90%"
+#| tbl-cap: "Gráfico de Performance do Perfil A, Semana 2"
+#| fig-align: "center"
+f_plotPerformance(df_nov, 0.05, profile_tag = "Perfil A", "2023-11-01", "2023-11-14", scale_factor = 1.35)
+```
+
+Na semana seguinte, entretanto, um conteúdo ainda da segunda semana, no dia 14/11 ultrapassa brevemente o do dia 06/11, que tem queda em taxa de Engajamento por um aumento muito grande de sua métrica de Impressões. Ele se mantém, entretanto, como melhor conteúdo em termos de taxa de Engajamento no período.
+Nota-se a formação gradual de um cluster dos conteúdos que performaram abaixo tanto da média em relação aos últimos 28 dias, quanto à média do último trimestre.
+
+```{r}
+#| label: plot-perfPerfilA-week3
+#| message: false
+#| echo: false
+#| warning: false
+#| out-width: "90%"
+#| fig-cap: "Gráfico de Performance do Perfil A, Semana 3"
+#| fig-align: "center"
+f_plotPerformance(df_nov, 0.05, profile_tag = "Perfil A", "2023-11-01", "2023-11-21", scale_factor = 1.35)
+```
+
+# Posts por Rede Social e Perfil
+
+Na tabela a seguir, vemos os posts entre todas as frentes de conteúdo.
+
+```{r}
+#| label: tbl-posts
+#| tbl-cap: "Post por data com Impressões e Engajamento"
+#| message: false
+#| echo: false
+#| warning: false
+df_nov |> 
+  group_by(Network, Profile) |> 
+  summarise(Impressions, Engagements, AER) |> 
+  flextable::flextable() |>
+  flextable::autofit()
+```
